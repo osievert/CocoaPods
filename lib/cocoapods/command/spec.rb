@@ -39,7 +39,7 @@ module Pod
       #
       # @return [Pathname] the absolute path or paths of the given podspec
       #
-      def get_path_of_spec(spec, show_all = false)
+      def get_path_of_spec(spec, show_all = false, version = nil)
         sets = config.sources_manager.search_by_name(spec)
 
         if sets.count == 1
@@ -47,16 +47,31 @@ module Pod
         elsif sets.map(&:name).include?(spec)
           set = sets.find { |s| s.name == spec }
         else
-          names = sets.map(&:name) * ', '
-          raise Informative, "More than one spec found for '#{spec}':\n#{names}"
+          if version
+              spec_unescaped = eval %Q{"#{spec}"}
+              sets.each do |s|
+                if s.name == spec_unescaped
+                    set = s
+                end
+              end
+          else
+            names = sets.map(&:name) * ', '
+            raise Informative, "More than one spec found for '#{spec}':\n#{names}"
+          end
         end
 
-        unless show_all
-          best_spec, spec_source = spec_and_source_from_set(set)
+        if show_all
+          return all_paths_from_set(set)
+        end
+
+        if version
+          best_spec, spec_source = spec_and_source_from_set_at_version(set, version)
           return pathname_from_spec(best_spec, spec_source)
         end
 
-        all_paths_from_set(set)
+        best_spec, spec_source = spec_and_source_from_set(set)
+        return pathname_from_spec(best_spec, spec_source)
+
       end
 
       # @return [Pathname] the absolute path of the given spec and source
@@ -97,6 +112,29 @@ module Pod
             if !best_version || version > best_version
               best_source = source
               best_version = version
+            end
+          end
+        end
+
+        if !best_source || !best_version
+          raise Informative, "Unable to locate highest known specification for `#{set.name}'"
+        end
+
+        [best_source.specification(set.name, best_version), best_source]
+      end
+
+      # @return [Specification, Source] the highest known specification with it's source of the given
+      #         set.
+      #
+      def spec_and_source_from_set_at_version(set, best_version)
+        sources = set.sources
+
+        best_source = nil
+        sources.each do |source|
+          versions = source.versions(set.name)
+          versions.each do |version|
+            if version.to_s == best_version
+              best_source = source
             end
           end
         end
